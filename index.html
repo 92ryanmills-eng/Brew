@@ -2250,7 +2250,7 @@ projectId: "your-app", ...' class="w-full rounded-lg border border-stone-300 p-2
     // you never have to paste them into the settings box on new devices, paste your
     // Firebase web app config object inside HARDCODED_FIREBASE_CONFIG below:
     // ============================================================================
-    const HARDCODED_FIREBASE_CONFIG = {
+    const firebaseConfig = {
   apiKey: "AIzaSyBqQc3PUtC7Ed_hYTAbJoT6NxXAooc7a64",
   authDomain: "brew-architect.firebaseapp.com",
   projectId: "brew-architect",
@@ -2258,16 +2258,7 @@ projectId: "your-app", ...' class="w-full rounded-lg border border-stone-300 p-2
   messagingSenderId: "236687608024",
   appId: "1:236687608024:web:9617ba100a5f3373a9efad",
   measurementId: "G-WGC9KJHZJK"
-}; 
-    // Example:
-    // const HARDCODED_FIREBASE_CONFIG = {
-    //   apiKey: "AIzaSy...",
-    //   authDomain: "your-project.firebaseapp.com",
-    //   projectId: "your-project",
-    //   storageBucket: "your-project.appspot.com",
-    //   messagingSenderId: "123456789",
-    //   appId: "1:123456789:web:abcdef"
-    // };
+};
 
     let app = null;
     let auth = null;
