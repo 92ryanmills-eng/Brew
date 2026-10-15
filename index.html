@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Brew Architect</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brew Architect — Coffee Recipe & Log</title>
 
   <!-- Standalone App / PWA Tags for Chrome, iOS & iPadOS -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -11,125 +11,324 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Brew Architect">
   <meta name="theme-color" content="#1c1917">
-  <link rel="apple-touch-icon" href="https://fav.farm/%E2%98%95">
-  <link rel="icon" href="https://fav.farm/%E2%98%95">
   <link rel="manifest" href="manifest.json">
 
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
-    body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; color: #1c1917; -webkit-tap-highlight-color: transparent; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; color: #1c1917; }
     .mono { font-family: 'JetBrains Mono', monospace; }
     input, select, textarea { transition: all 0.15s ease; }
     input:focus, select:focus, textarea:focus { outline: none; border-color: #d97706; box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15); }
-    .active-pour-row { background-color: #fef3c7 !important; border-left: 4px solid #d97706; }
+    
+    /* Active pour highlight animation */
+    .active-pour-row {
+      background-color: #fffbeb !important; /* amber-50 */
+      box-shadow: inset 4px 0 0 0 #d97706;
+    }
+    .completed-pour-row {
+      opacity: 0.65;
+      background-color: #fafaf9;
+    }
+
     @media print { .no-print { display: none !important; } body { background-color: white; } }
   </style>
 </head>
-<body class="min-h-screen p-3 md:p-6 pb-16">
+<body class="min-h-screen p-3 md:p-8">
 
-  <div class="max-w-4xl mx-auto space-y-4">
+  <!-- Custom Modal / Toast Container (Replaces alert/confirm/prompt) -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
-    <!-- Header & Recipe Selector -->
-    <header class="bg-stone-900 text-stone-100 p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+  <!-- Save / Reset Modal -->
+  <div id="modalOverlay" class="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-md w-full p-6 space-y-4">
+      <h3 id="modalTitle" class="text-lg font-bold text-stone-900">Save Recipe</h3>
+      <p id="modalDesc" class="text-sm text-stone-600">Enter a name for this recipe or brew log:</p>
+      <input type="text" id="modalInput" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium">
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeModal()" class="px-4 py-2 rounded-lg text-sm font-medium text-stone-600 hover:bg-stone-100 transition">Cancel</button>
+        <button id="modalConfirmBtn" class="px-4 py-2 rounded-lg text-sm font-semibold bg-amber-600 hover:bg-amber-500 text-white transition">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cloud Account / Email Login & One-Time Firebase Setup Modal -->
+  <div id="authModalOverlay" class="fixed inset-0 bg-stone-900/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-stone-200 max-w-lg w-full overflow-hidden">
+      <!-- Modal Header -->
+      <div class="bg-stone-900 text-stone-100 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-amber-400 text-lg">☁️</span>
+          <h3 class="text-base font-bold">Cloud Sync & Account Login</h3>
+        </div>
+        <button onclick="closeAuthModal()" class="text-stone-400 hover:text-white font-bold text-sm px-2 py-1 rounded">✕</button>
+      </div>
+
+      <div class="p-6 space-y-5 max-h-[85vh] overflow-y-auto">
+        
+        <!-- View 1: Logged In Account View -->
+        <div id="authLoggedInView" class="hidden space-y-4">
+          <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between">
+            <div>
+              <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Signed In & Auto-Syncing</div>
+              <div id="authUserEmailDisplay" class="text-sm font-bold text-stone-900 mt-0.5 mono"></div>
+              <div id="authUserIdDisplay" class="text-[10px] text-stone-500 mt-0.5 mono break-all"></div>
+            </div>
+            <span class="h-3 w-3 rounded-full bg-emerald-500 animate-pulse"></span>
+          </div>
+
+          <p class="text-xs text-stone-600 leading-relaxed">
+            All of your <strong>Saved Recipes</strong>, <strong>Active Coffee Bags</strong>, <strong>Custom Brewers & Filters</strong>, <strong>Permanent Adjustment Tags</strong>, and <strong>Previous Brews History</strong> are automatically backed up and synced in real time across any device signed into this email.
+          </p>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-200">
+            <button type="button" onclick="forcePushCloudSync()" class="bg-stone-800 hover:bg-stone-700 text-amber-400 text-xs font-semibold px-4 py-2.5 rounded-xl transition">
+              ↻ Force Sync Now
+            </button>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="toggleFirebaseConfigPanel()" class="text-xs text-stone-500 hover:text-stone-800 underline px-2 py-1">
+                Cloud Settings
+              </button>
+              <button type="button" onclick="handleSignOut()" class="bg-red-600 hover:bg-red-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition">
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 2: Email & Password Sign In / Create Account View -->
+        <div id="authLoginFormView" class="space-y-4">
+          <p class="text-xs text-stone-600 leading-relaxed">
+            Sign in with your email address so your recipes, open coffee beans, custom brewers/filters, and brew logs automatically sync across your phone, iPad, and computer.
+          </p>
+
+          <div id="authErrorBox" class="hidden bg-red-50 border border-red-200 text-red-700 text-xs font-medium p-3 rounded-xl"></div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1">Email Address</label>
+              <input type="email" id="authEmailInput" placeholder="you@example.com" class="w-full rounded-xl border border-stone-300 px-3.5 py-2.5 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1">Password</label>
+              <input type="password" id="authPasswordInput" placeholder="•••••••• (min 6 characters)" 
+                onkeydown="if(event.key==='Enter'){event.preventDefault();handleEmailAuth('login');}"
+                class="w-full rounded-xl border border-stone-300 px-3.5 py-2.5 text-sm">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <button type="button" onclick="handleEmailAuth('login')" class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm py-2.5 px-4 rounded-xl transition shadow-xs">
+              Sign In
+            </button>
+            <button type="button" onclick="handleEmailAuth('signup')" class="bg-stone-900 hover:bg-stone-800 text-stone-100 font-semibold text-sm py-2.5 px-4 rounded-xl transition">
+              Create New Account
+            </button>
+          </div>
+
+          <div class="relative flex py-1 items-center">
+            <div class="flex-grow border-t border-stone-200"></div>
+            <span class="shrink mx-3 text-[11px] uppercase tracking-wider text-stone-400 font-semibold">Or</span>
+            <div class="flex-grow border-t border-stone-200"></div>
+          </div>
+
+          <button type="button" onclick="handleGoogleSignIn()" class="w-full bg-white hover:bg-stone-50 text-stone-800 border border-stone-300 font-semibold text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-2xs">
+            <span>G</span> Continue with Google
+          </button>
+
+          <div class="pt-2 border-t border-stone-200 flex items-center justify-between text-xs text-stone-500">
+            <span>Hosting on your own GitHub Pages?</span>
+            <button type="button" onclick="toggleFirebaseConfigPanel()" class="text-amber-700 hover:text-amber-900 font-semibold underline">
+              ⚙️ Configure Cloud Keys
+            </button>
+          </div>
+        </div>
+
+        <!-- View 3: Self-Hosted GitHub Pages Firebase Config Paste Box -->
+        <div id="firebaseSetupPanel" class="hidden bg-stone-50 border border-stone-200 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-stone-800">🔧 One-Time Cloud Database Setup (GitHub Pages)</h4>
+            <button type="button" onclick="toggleFirebaseConfigPanel()" class="text-xs text-stone-500 hover:text-stone-800">Hide</button>
+          </div>
+          <ol class="text-[11px] text-stone-600 space-y-1.5 list-decimal list-inside leading-relaxed">
+            <li>Go to <a href="https://console.firebase.google.com/" target="_blank" class="text-amber-700 underline font-semibold">console.firebase.google.com</a> and click <strong>Create a project</strong> (free).</li>
+            <li>In the left menu, click <strong>Build → Authentication → Get started</strong> and enable <strong>Email/Password</strong>.</li>
+            <li>Click <strong>Build → Firestore Database → Create database</strong> → choose <strong>Start in test mode</strong> (or set rules to allow authenticated users).</li>
+            <li>Go to <strong>Project Overview (⚙️ Gear icon) → Project settings</strong> → scroll down to <strong>Your apps</strong> → click the Web icon <strong><code>&lt;/&gt;</code></strong>, register your app, and copy the <code>firebaseConfig</code> block below:</li>
+          </ol>
+          <textarea id="firebaseConfigTextarea" rows="5" placeholder='Paste your firebaseConfig object or JSON here, e.g.:
+apiKey: "AIzaSy...",
+authDomain: "your-app.firebaseapp.com",
+projectId: "your-app", ...' class="w-full rounded-lg border border-stone-300 p-2.5 text-xs mono bg-white"></textarea>
+          <div class="flex justify-end gap-2">
+            <button type="button" onclick="saveCustomFirebaseConfigFromUI()" class="bg-stone-900 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition">
+              Save & Connect Cloud
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-4xl mx-auto space-y-5">
+
+    <!-- Header & Recipe Manager -->
+    <header class="bg-stone-900 text-stone-100 p-5 rounded-2xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
       <div>
-        <h1 class="text-lg font-bold tracking-tight flex items-center gap-2">
+        <h1 class="text-xl font-bold tracking-tight flex items-center gap-2">
           <span>☕</span> Brew Architect
         </h1>
-        <p class="text-xs text-stone-400">Dynamic Pour-Over Calculator & Brew Log</p>
+        <p class="text-xs text-stone-400 mt-0.5">Dynamic Ratio Calculator, Live Timer & Cloud Brew Log</p>
       </div>
 
       <div class="flex flex-wrap items-center gap-2 no-print">
-        <!-- Cloud Auth Widget Container -->
-        <div id="authWidgetContainer" class="flex items-center gap-2 bg-stone-800 px-3 py-1.5 rounded-xl border border-stone-700 text-xs">
-          <span id="authStatusText" class="text-stone-300">Checking cloud...</span>
-          <button id="authActionBtn" onclick="openAuthModal()" class="bg-amber-600 hover:bg-amber-500 text-white font-semibold px-2.5 py-1 rounded-lg transition">Sign In</button>
-        </div>
+        <!-- Cloud Account / Sync Status Button -->
+        <button id="cloudAuthHeaderBtn" onclick="openAuthModal()" class="bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold px-3 py-2 rounded-lg border border-stone-700 transition flex items-center gap-2">
+          <span id="cloudStatusDot" class="h-2 w-2 rounded-full bg-stone-500"></span>
+          <span id="cloudStatusText">☁️ Sign In to Sync</span>
+        </button>
 
         <select id="recipeSelect" onchange="loadSelectedRecipe()" class="bg-stone-800 text-stone-100 text-sm rounded-lg px-3 py-2 border border-stone-700">
           <option value="">-- Load Saved Recipe --</option>
         </select>
-        <button onclick="resetCard()" class="bg-stone-800 hover:bg-red-900/60 text-stone-300 text-sm px-3 py-2 rounded-lg border border-stone-700 transition">
+        <button onclick="openResetModal()" class="bg-stone-800 hover:bg-red-900/60 text-stone-300 text-sm px-3 py-2 rounded-lg border border-stone-700 transition">
           Reset
         </button>
       </div>
     </header>
 
-    <!-- Top Bar: Current Bean & Bag Tracker -->
-    <section class="bg-white rounded-2xl shadow-sm border border-stone-200 p-4">
-      <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <!-- Dedicated Bean & Bag Tracker Bar (Separated above Recipe & Timer) -->
+    <section class="bg-white rounded-2xl p-4 sm:px-6 shadow-sm border border-stone-200">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
         
-        <!-- Bean Input + Integrated Dropdown -->
-        <div class="md:col-span-6 relative" id="beanDropdownContainer">
-          <label class="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">Current Bean / Roaster</label>
+        <!-- Bean / Roaster Input with Integrated Custom Dropdown & Delete (✕) -->
+        <div class="md:col-span-5 relative" id="beanDropdownWrapper">
+          <div class="flex items-center justify-between mb-1">
+            <label for="bean" class="block text-xs font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
+              <span>🫘</span> Bean / Roaster
+            </label>
+            <span id="beanSaveStatus" class="text-[11px] text-stone-400 font-medium no-print">Auto-saves to bag list</span>
+          </div>
+
           <div class="relative flex items-center">
-            <input type="text" id="bean" placeholder="Type bean & roaster..." 
-              oninput="checkAdvisoryPrompt()"
-              onblur="autoSaveCurrentBean()"
-              class="w-full rounded-lg border border-stone-300 pl-3 pr-16 py-2 text-sm font-medium text-stone-900">
-            <div class="absolute right-1 flex items-center gap-0.5">
-              <button type="button" onclick="saveBeanExplicit()" title="Save Bean Bag" class="text-xs bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-2 py-1 rounded transition">+</button>
-              <button type="button" onclick="toggleBeanDropdown()" title="Saved Beans" class="text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 px-2 py-1 rounded transition">▼</button>
+            <input type="text" id="bean" 
+              placeholder="Type bean name or select active bag..." 
+              autocomplete="off"
+              oninput="handleBeanTextInput()"
+              onkeydown="handleBeanKeydown(event)"
+              onblur="autoSaveCurrentBean(true)"
+              class="w-full rounded-xl border border-stone-300 pl-3.5 pr-16 py-2 text-sm font-semibold text-stone-900 placeholder:font-normal">
+            
+            <div class="absolute right-1.5 flex items-center gap-0.5 no-print">
+              <!-- Quick Save Check Button -->
+              <button type="button" onclick="autoSaveCurrentBean(false)" title="Save / Update Bean Bag"
+                class="p-1.5 text-stone-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </button>
+              <!-- Dropdown Toggle Arrow -->
+              <button type="button" id="beanDropdownBtn" onclick="toggleBeanDropdown(event)" title="Show saved coffee bags"
+                class="p-1.5 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition flex items-center">
+                <svg id="beanDropdownArrow" class="w-4 h-4 transition-transform duration-150" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
             </div>
           </div>
-          <!-- Dropdown Menu -->
-          <div id="beanDropdownMenu" class="hidden absolute z-30 mt-1 w-full bg-white rounded-xl shadow-lg border border-stone-200 max-h-60 overflow-y-auto divide-y divide-stone-100"></div>
+
+          <!-- Custom Dropdown List for Saved Coffee Bags -->
+          <div id="beanDropdownMenu" class="hidden absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-200 rounded-xl shadow-xl z-40 max-h-64 overflow-y-auto divide-y divide-stone-100 no-print">
+            <!-- Dynamically populated with saved beans + Roasted/Opened dates + ✕ delete button -->
+          </div>
         </div>
 
-        <!-- Roasted On Date -->
+        <!-- Roasted On Date Picker + Days Off Roast Badge -->
         <div class="md:col-span-3">
           <div class="flex items-center justify-between mb-1">
-            <label class="text-xs font-bold uppercase tracking-wider text-stone-500">Roasted On</label>
-            <span id="daysOffRoastBadge" class="hidden text-[11px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold"></span>
+            <label for="roastedOn" class="block text-xs font-semibold uppercase tracking-wider text-stone-500">Roasted On</label>
+            <span id="daysRoastedBadge" class="hidden text-[11px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-bold whitespace-nowrap mono"></span>
           </div>
-          <input type="date" id="roastedOn" onchange="updateDateBadges(); autoSaveCurrentBean();" class="w-full rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm">
+          <input type="date" id="roastedOn" onchange="handleBeanDateChange()" class="w-full rounded-xl border border-stone-300 px-3 py-2 text-sm text-stone-800">
         </div>
 
-        <!-- Opened On Date -->
-        <div class="md:col-span-3">
+        <!-- Opened On Date Picker + Days Opened Badge -->
+        <div class="md:col-span-4">
           <div class="flex items-center justify-between mb-1">
-            <label class="text-xs font-bold uppercase tracking-wider text-stone-500">Opened On</label>
-            <span id="daysOpenedBadge" class="hidden text-[11px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded font-semibold"></span>
+            <label for="openedOn" class="block text-xs font-semibold uppercase tracking-wider text-stone-500">Opened On</label>
+            <span id="daysOpenedBadge" class="hidden text-[11px] bg-stone-200 text-stone-800 border border-stone-300 px-2 py-0.5 rounded-md font-bold whitespace-nowrap mono"></span>
           </div>
-          <input type="date" id="openedOn" onchange="updateDateBadges(); autoSaveCurrentBean();" class="w-full rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm">
+          <input type="date" id="openedOn" onchange="handleBeanDateChange()" class="w-full rounded-xl border border-stone-300 px-3 py-2 text-sm text-stone-800">
         </div>
 
       </div>
     </section>
 
-    <!-- Smart Dial-In Advisory Banner -->
-    <div id="advisoryBanner" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-4 shadow-sm">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div class="space-y-1">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-bold uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded">💡 Last Dial-In Advisory</span>
-            <span id="advisoryMeta" class="text-xs text-stone-600 font-medium"></span>
+    <!-- Smart "Last Dial-In Advisory" Prompt Banner -->
+    <section id="advisoryBanner" class="hidden bg-amber-50/95 border-2 border-amber-400/90 rounded-2xl p-4 sm:px-5 shadow-sm transition-all">
+      <div class="flex flex-col md:flex-row md:items-start justify-between gap-3">
+        <div class="space-y-2 flex-grow">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center gap-1 bg-amber-600 text-white text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+              <span>💡</span> Last Dial-In Advisory
+            </span>
+            <span id="advisoryMatchType" class="text-xs font-bold text-amber-900"></span>
+            <span id="advisoryTimestamp" class="text-xs text-stone-500 mono"></span>
           </div>
-          <p id="advisoryNotes" class="text-sm font-semibold text-stone-900"></p>
+
+          <!-- Highlighted Next Brew Notes from Previous Session -->
+          <div class="bg-white/90 border border-amber-300 rounded-xl p-3 shadow-2xs">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-0.5">Notes & Adjustments Logged for This Brew:</div>
+            <p id="advisoryNotesText" class="text-sm font-semibold text-stone-900 leading-snug"></p>
+          </div>
+
+          <!-- Last Brew Key Metrics Summary -->
+          <div id="advisoryMetricsBar" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-700 pt-0.5">
+            <!-- Populated dynamically -->
+          </div>
         </div>
-        <button id="advisoryLoadBtn" type="button" class="text-xs bg-amber-600 hover:bg-amber-500 text-white font-semibold px-3 py-2 rounded-lg whitespace-nowrap transition self-start sm:self-center">
-          ↺ Load That Brew's Settings
-        </button>
+
+        <!-- Advisory Actions -->
+        <div class="flex md:flex-col items-center md:items-end justify-end gap-2 shrink-0 no-print">
+          <button type="button" onclick="applyAdvisoryBrewSettings()" class="bg-stone-900 hover:bg-stone-800 text-amber-400 text-xs font-semibold px-3.5 py-2 rounded-xl transition shadow-2xs whitespace-nowrap">
+            ↺ Load That Brew's Settings
+          </button>
+          <button type="button" onclick="dismissAdvisoryBanner()" class="text-xs text-stone-500 hover:text-stone-800 px-2 py-1 rounded-lg transition">
+            Dismiss ✕
+          </button>
+        </div>
       </div>
-    </div>
+    </section>
 
     <!-- Live Count-Up Brew Timer Bar -->
-    <section class="bg-stone-900 text-stone-100 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
-      <div class="flex items-center gap-4">
-        <div id="timerDisplay" class="text-3xl sm:text-4xl font-bold mono tracking-tight text-amber-400">00:00.0</div>
-        <div class="border-l border-stone-700 pl-3">
-          <div id="timerStageLabel" class="text-xs font-bold uppercase tracking-wider text-stone-300">Ready to Brew</div>
-          <div id="timerNextHint" class="text-xs text-stone-400">Press Start when pouring bloom</div>
+    <section class="bg-stone-900 text-stone-100 rounded-2xl p-4 sm:px-6 shadow-md border border-stone-800 flex flex-col lg:flex-row items-center justify-between gap-4 no-print">
+      <!-- Clock Display & Status -->
+      <div class="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-start">
+        <div class="flex items-baseline gap-1 bg-stone-950 px-4 py-2 rounded-xl border border-stone-800">
+          <span id="timerMinutesSeconds" class="text-3xl sm:text-4xl font-bold tracking-tight text-amber-400 mono">00:00</span>
+          <span id="timerTenths" class="text-lg font-semibold text-stone-500 mono">.0</span>
+        </div>
+
+        <div class="flex flex-col">
+          <div class="flex items-center gap-2">
+            <span id="timerStateDot" class="h-2.5 w-2.5 rounded-full bg-stone-600"></span>
+            <span id="timerActiveStageTitle" class="text-xs font-bold uppercase tracking-wider text-stone-300">Timer Ready</span>
+          </div>
+          <p id="timerNextCue" class="text-xs text-stone-400 mt-0.5 mono">Press Start when water hits coffee</p>
         </div>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button id="timerStartBtn" onclick="toggleTimer()" class="bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm px-4 py-2 rounded-xl transition">
-          ▶ Start
+
+      <!-- Timer Controls -->
+      <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
+        <button id="timerStartPauseBtn" onclick="toggleTimer()" class="flex-1 sm:flex-initial bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-xs">
+          <span id="timerBtnIcon">▶</span>
+          <span id="timerBtnText">Start Brew</span>
         </button>
-        <button onclick="logFinishTimeFromTimer()" class="bg-stone-700 hover:bg-stone-600 text-stone-100 font-medium text-sm px-3.5 py-2 rounded-xl transition">
+        <button onclick="logFinishTimeFromTimer()" class="flex-1 sm:flex-initial bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 font-semibold text-sm px-4 py-2.5 rounded-xl transition" title="Stop timer and stamp time into Finish drawdown row">
           🏁 Log Finish Time
         </button>
-        <button onclick="resetTimer()" class="bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm px-3 py-2 rounded-xl border border-stone-700 transition">
+        <button onclick="resetTimer()" class="bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 font-medium text-sm px-3.5 py-2.5 rounded-xl transition" title="Reset Timer">
           ↺ Reset
         </button>
       </div>
@@ -138,635 +337,139 @@
     <!-- Main Brew Card -->
     <main class="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
       
-      <!-- Recipe Card Header & Auto-Scale Toggle -->
-      <div class="bg-stone-100/80 px-5 py-3.5 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-bold uppercase tracking-wider bg-stone-800 text-stone-100 px-2 py-1 rounded">Recipe Card</span>
-          <input type="text" id="recipeName" placeholder="Recipe Title (e.g., Orea V4 3-Pour Fast)" oninput="checkAdvisoryPrompt()"
-            class="bg-transparent text-base font-bold text-stone-900 border-b border-transparent focus:border-amber-600 px-1 py-0.5 w-full sm:w-auto flex-grow">
+      <!-- Top Bar: Recipe Card Header & Auto-Scale Toggle -->
+      <div class="bg-stone-100/80 px-6 py-4 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 flex-grow">
+          <h2 class="text-xs font-extrabold uppercase tracking-wider text-amber-900 bg-amber-100/90 border border-amber-300/80 px-2.5 py-1 rounded-lg shrink-0 self-start sm:self-center">
+            Recipe Card
+          </h2>
+          <input type="text" id="recipeName" oninput="checkLastBrewAdvisory()" placeholder="Recipe Card" 
+            class="bg-transparent text-lg font-bold text-stone-900 border-b border-transparent focus:border-amber-600 px-1 py-0.5 w-full flex-grow rounded-none">
         </div>
         
-        <label class="flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer select-none no-print">
+        <label class="flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer select-none no-print shrink-0">
           <input type="checkbox" id="scalePoursToggle" checked class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
-          <span>Auto-scale pours with Dose/Ratio</span>
+          <span>Auto-scale pour volumes when Dose/Ratio changes</span>
         </label>
       </div>
 
-      <div class="p-5 space-y-6">
+      <div class="p-6 space-y-8">
 
-        <!-- Brew Variables Grid -->
-        <section class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
+        <!-- Section 1: Brew Variables -->
+        <section>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
 
-            <!-- Brewer / Method -->
-            <div class="relative" id="brewerDropdownContainer">
+            <!-- Brewer / Method (Pure Dropdown Selector Bar with internal + Add New & ✕ Delete) -->
+            <div class="relative" id="brewerDropdownWrapper">
               <label class="block text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1">Brewer / Method</label>
-              <button type="button" onclick="toggleGearDropdown('brewer')" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-left flex items-center justify-between hover:border-stone-400">
-                <span id="brewerSelectedText" class="font-medium text-stone-800 truncate">Select brewer...</span>
-                <span class="text-xs text-stone-400 ml-2">▼</span>
-              </button>
               <input type="hidden" id="brewer" value="">
-              <div id="brewerDropdownMenu" class="hidden absolute z-30 mt-1 w-full bg-white rounded-xl shadow-lg border border-stone-200 overflow-hidden">
-                <div class="p-2 bg-stone-50 border-b border-stone-200 flex gap-1">
-                  <input type="text" id="newBrewerInput" placeholder="Add new brewer..." onkeydown="if(event.key==='Enter'){event.preventDefault();addNewGearItem('brewer');}" class="w-full text-xs rounded border border-stone-300 px-2 py-1.5">
-                  <button type="button" onclick="addNewGearItem('brewer')" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-2.5 rounded">+</button>
+              <button type="button" onclick="toggleGearDropdown('brewer', event)"
+                class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-left flex items-center justify-between hover:border-stone-400 focus:outline-none focus:border-amber-600 transition">
+                <span id="brewerSelectedText" class="truncate text-stone-400">Select brewer...</span>
+                <svg id="brewerDropdownArrow" class="w-4 h-4 text-stone-500 transition-transform duration-150 shrink-0 ml-2" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+
+              <!-- Brewer Custom Dropdown Menu -->
+              <div id="brewerDropdownMenu" class="hidden absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-200 rounded-xl shadow-xl z-40 overflow-hidden no-print">
+                <!-- Quick Add New Brewer Row inside Dropdown -->
+                <div class="p-2 bg-stone-50 border-b border-stone-200 flex items-center gap-1.5">
+                  <input type="text" id="newBrewerQuickInput" placeholder="Add new brewer..." 
+                    onkeydown="if(event.key === 'Enter') { event.preventDefault(); addGearFromDropdownInput('brewer'); }"
+                    class="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs">
+                  <button type="button" onclick="addGearFromDropdownInput('brewer')" title="Add & Select Brewer"
+                    class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-2.5 py-1 rounded-lg transition shrink-0">
+                    +
+                  </button>
                 </div>
-                <div id="brewerOptionsList" class="max-h-48 overflow-y-auto divide-y divide-stone-100"></div>
+                <div id="brewerDropdownList" class="max-h-52 overflow-y-auto divide-y divide-stone-100">
+                  <!-- Populated dynamically -->
+                </div>
               </div>
             </div>
 
-            <!-- Filter Paper -->
-            <div class="relative" id="filterDropdownContainer">
+            <!-- Filter Paper (Pure Dropdown Selector Bar with internal + Add New & ✕ Delete) -->
+            <div class="relative" id="filterDropdownWrapper">
               <label class="block text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1">Filter Paper</label>
-              <button type="button" onclick="toggleGearDropdown('filter')" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-left flex items-center justify-between hover:border-stone-400">
-                <span id="filterSelectedText" class="font-medium text-stone-800 truncate">Select filter...</span>
-                <span class="text-xs text-stone-400 ml-2">▼</span>
-              </button>
               <input type="hidden" id="filterPaper" value="">
-              <div id="filterDropdownMenu" class="hidden absolute z-30 mt-1 w-full bg-white rounded-xl shadow-lg border border-stone-200 overflow-hidden">
-                <div class="p-2 bg-stone-50 border-b border-stone-200 flex gap-1">
-                  <input type="text" id="newFilterInput" placeholder="Add new filter..." onkeydown="if(event.key==='Enter'){event.preventDefault();addNewGearItem('filter');}" class="w-full text-xs rounded border border-stone-300 px-2 py-1.5">
-                  <button type="button" onclick="addNewGearItem('filter')" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-2.5 rounded">+</button>
+              <button type="button" onclick="toggleGearDropdown('filter', event)"
+                class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-left flex items-center justify-between hover:border-stone-400 focus:outline-none focus:border-amber-600 transition">
+                <span id="filterSelectedText" class="truncate text-stone-400">Select filter...</span>
+                <svg id="filterDropdownArrow" class="w-4 h-4 text-stone-500 transition-transform duration-150 shrink-0 ml-2" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+
+              <!-- Filter Custom Dropdown Menu -->
+              <div id="filterDropdownMenu" class="hidden absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-200 rounded-xl shadow-xl z-40 overflow-hidden no-print">
+                <!-- Quick Add New Filter Row inside Dropdown -->
+                <div class="p-2 bg-stone-50 border-b border-stone-200 flex items-center gap-1.5">
+                  <input type="text" id="newFilterQuickInput" placeholder="Add new filter..." 
+                    onkeydown="if(event.key === 'Enter') { event.preventDefault(); addGearFromDropdownInput('filter'); }"
+                    class="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs">
+                  <button type="button" onclick="addGearFromDropdownInput('filter')" title="Add & Select Filter"
+                    class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-2.5 py-1 rounded-lg transition shrink-0">
+                    +
+                  </button>
                 </div>
-                <div id="filterOptionsList" class="max-h-48 overflow-y-auto divide-y divide-stone-100"></div>
+                <div id="filterDropdownList" class="max-h-52 overflow-y-auto divide-y divide-stone-100">
+                  <!-- Populated dynamically -->
+                </div>
               </div>
             </div>
 
             <!-- Water Temp -->
             <div>
               <label class="block text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1">Water Temp (°C)</label>
-              <input type="number" id="waterTemp" placeholder="93" step="0.5" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm mono">
+              <input type="number" id="waterTemp" value="93" step="0.5" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm mono">
             </div>
 
             <!-- Grind Setting -->
             <div>
               <label class="block text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1">Grind Setting</label>
-              <input type="text" id="grindSetting" placeholder="e.g., 6.8" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm mono">
+              <input type="text" id="grindSetting" placeholder="e.g., 6.8 (K-Ultra)" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm mono">
             </div>
 
-          </div>
-
-          <!-- Dose, Ratio & Yield Row -->
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div class="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80">
-              <label class="block text-xs font-bold uppercase tracking-wider text-amber-900 mb-1">Coffee Dose (g)</label>
-              <input type="number" id="dose" placeholder="15" step="0.1" min="1" oninput="handleDoseOrRatioChange()" class="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-base font-bold text-stone-900 mono">
-            </div>
-
-            <div class="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80">
-              <label class="block text-xs font-bold uppercase tracking-wider text-amber-900 mb-1">Ratio (1:X)</label>
-              <div class="flex items-center">
-                <span class="text-sm font-bold text-stone-500 mr-1.5 mono">1:</span>
-                <input type="number" id="ratio" placeholder="16" step="0.5" min="1" oninput="handleDoseOrRatioChange()" class="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-base font-bold text-stone-900 mono">
+            <!-- Dose (g) -->
+            <div class="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80 sm:col-span-1 md:col-span-2 flex items-center justify-between gap-4">
+              <div class="w-full">
+                <label class="block text-xs font-bold uppercase tracking-wider text-amber-900 mb-1">Coffee Dose (g)</label>
+                <input type="number" id="dose" value="15" step="0.1" min="1" oninput="handleDoseOrRatioChange()" class="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-base font-bold text-stone-900 mono">
               </div>
             </div>
 
-            <div class="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80 flex flex-col justify-center items-end">
-              <span class="text-[11px] font-bold uppercase tracking-wider text-amber-800">Target Yield</span>
-              <div>
-                <span id="targetYieldDisplay" class="text-2xl font-extrabold text-amber-700 mono">0</span>
+            <!-- Ratio & Target Yield -->
+            <div class="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80 sm:col-span-1 md:col-span-2 flex items-center justify-between gap-3">
+              <div class="w-1/2">
+                <label class="block text-xs font-bold uppercase tracking-wider text-amber-900 mb-1">Ratio (1:X)</label>
+                <div class="flex items-center">
+                  <span class="text-sm font-bold text-stone-500 mr-1 mono">1:</span>
+                  <input type="number" id="ratio" value="16" step="0.5" min="1" oninput="handleDoseOrRatioChange()" class="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-base font-bold text-stone-900 mono">
+                </div>
+              </div>
+              <div class="w-1/2 text-right border-l border-amber-200 pl-3">
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-amber-800">Target Yield</span>
+                <span id="targetYieldDisplay" class="text-2xl font-extrabold text-amber-700 mono">240</span>
                 <span class="text-xs font-semibold text-amber-700">ml</span>
               </div>
             </div>
+
           </div>
         </section>
 
-        <!-- Pour Structure Table -->
+        <!-- Section 2: Pour Structure Table -->
         <section class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-stone-700">Pour Schedule & Drawdown</h2>
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm font-bold uppercase tracking-wider text-stone-700">Pour Schedule & Drawdown</h2>
+              <span class="text-xs text-stone-400 hidden sm:inline">• Rows highlight live during brew</span>
+            </div>
             <span id="pourDiffWarning" class="text-xs font-medium text-amber-700 hidden"></span>
           </div>
 
           <div class="overflow-x-auto border border-stone-200 rounded-xl">
             <table class="w-full text-left border-collapse">
               <thead>
-                <tr class="bg-stone-100 text-stone-600 text-[11px] uppercase border-b border-stone-200">
-                  <th class="py-2.5 px-3 w-20">Stage</th>
-                  <th class="py-2.5 px-3 w-24">Time</th>
-                  <th class="py-2.5 px-3 w-28">+ Pour (ml)</th>
-                  <th class="py-2.5 px-3 w-28">Total (ml)</th>
-                  <th class="py-2.5 px-3">Notes (Swirl, MeloDrip, Switch)</th>
-                  <th class="py-2.5 px-2 w-8 no-print"></th>
-                </tr>
-              </thead>
-              <tbody id="pourTableBody" class="divide-y divide-stone-200 text-sm"></tbody>
-              <tfoot>
-                <tr class="bg-stone-900 text-stone-100 font-semibold border-t-2 border-stone-800">
-                  <td class="py-3 px-3 text-xs uppercase tracking-wider text-amber-400">Finish</td>
-                  <td class="py-3 px-3">
-                    <input type="text" id="finalDrawdownTime" placeholder="02:30" class="w-20 bg-stone-800 text-stone-100 border border-stone-700 rounded px-2 py-1 text-sm mono">
-                  </td>
-                  <td class="py-3 px-3 text-xs text-stone-400 mono">Drawdown</td>
-                  <td class="py-3 px-3">
-                    <div class="flex items-center gap-1">
-                      <input type="number" id="finalTotalVolume" placeholder="0" class="w-20 bg-stone-800 text-amber-400 font-bold border border-stone-700 rounded px-2 py-1 text-sm mono">
-                      <span class="text-xs text-stone-400">ml</span>
-                    </div>
-                  </td>
-                  <td class="py-3 px-3" colspan="2">
-                    <input type="text" id="finishNotes" placeholder="Drawdown observation (e.g., flat bed, fast flow)" class="w-full bg-stone-800 text-stone-100 border border-stone-700 rounded px-2.5 py-1 text-sm font-normal">
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <!-- Add Pour & Save Recipe Row -->
-          <div class="flex flex-wrap justify-between items-center gap-2 pt-1 no-print">
-            <div class="flex items-center gap-3">
-              <button onclick="addPourRow()" class="inline-flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs px-3.5 py-2 rounded-lg border border-stone-300 transition">
-                <span class="text-base leading-none">+</span> Add Pour Stage
-              </button>
-              <button onclick="matchPoursToTarget()" class="text-xs text-amber-700 hover:text-amber-900 font-medium underline">
-                Scale pours to Target Yield
-              </button>
-            </div>
-
-            <button onclick="saveCurrentRecipe()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm transition">
-              💾 Save Recipe Template
-            </button>
-          </div>
-        </section>
-
-        <!-- Next Brew Notes & Permanent Quick-Tags -->
-        <section class="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-3">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <label class="text-xs font-bold uppercase tracking-wider text-stone-700">
-              Notes & Adjustments for Next Brew
-            </label>
-            <div class="flex items-center gap-1 no-print">
-              <input type="text" id="newCustomTagInput" placeholder="New permanent tag..." onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomTagFromInput();}" class="text-xs rounded-lg border border-stone-300 px-2.5 py-1 bg-white">
-              <button type="button" onclick="addCustomTagFromInput()" class="text-xs bg-stone-800 hover:bg-stone-700 text-white font-semibold px-2.5 py-1 rounded-lg">+ Save Tag</button>
-            </div>
-          </div>
-
-          <!-- Permanent Quick Tags -->
-          <div id="quickTagsContainer" class="flex flex-wrap gap-1.5 no-print"></div>
-
-          <textarea id="nextBrewNotes" rows="3" 
-            onkeydown="handleNotesKeydown(event)"
-            onblur="harvestNotesIntoTags()"
-            placeholder="Type notes for next brew (press Enter to also save phrase as a permanent tag)..." 
-            class="w-full rounded-lg border border-stone-300 p-3 text-sm"></textarea>
-
-          <div class="flex justify-end pt-1 no-print">
-            <button onclick="saveCompletedBrewToHistory()" class="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-sm px-5 py-2.5 rounded-xl shadow-sm transition">
-              ✓ Save Brew to History
-            </button>
-          </div>
-        </section>
-
-      </div>
-    </main>
-
-    <!-- Previous Brews History Log -->
-    <section class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 space-y-4 no-print">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 pb-3">
-        <div>
-          <h2 class="text-sm font-bold uppercase tracking-wider text-stone-800">Previous Brews Log</h2>
-          <p class="text-xs text-stone-500">Past sessions & dial-in adjustments</p>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <button onclick="setHistoryFilter('all')" id="filterBtn-all" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-900 text-white">All Brews</button>
-          <button onclick="setHistoryFilter('bean')" id="filterBtn-bean" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-100 text-stone-700 hover:bg-stone-200">Current Bean</button>
-          <button onclick="setHistoryFilter('recipe')" id="filterBtn-recipe" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-100 text-stone-700 hover:bg-stone-200">Current Recipe</button>
-        </div>
-      </div>
-
-      <div id="brewHistoryContainer" class="space-y-2.5"></div>
-    </section>
-
-  </div>
-
-  <!-- AUTH MODAL -->
-  <div id="authModal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 relative">
-      <button onclick="closeAuthModal()" class="absolute top-4 right-4 text-stone-400 hover:text-stone-700 font-bold">✕</button>
-      <h3 class="text-base font-bold text-stone-900">Cloud Sync & Account</h3>
-      <p class="text-xs text-stone-500">Sign in with your email to sync your recipes and brew logs across devices.</p>
-      
-      <div class="space-y-3">
-        <input type="email" id="authEmail" placeholder="Email address" class="w-full text-sm rounded-lg border border-stone-300 px-3 py-2">
-        <input type="password" id="authPassword" placeholder="Password" class="w-full text-sm rounded-lg border border-stone-300 px-3 py-2">
-        <div id="authErrorMsg" class="text-xs text-red-600 hidden"></div>
-        <div class="flex gap-2 pt-1">
-          <button onclick="handleEmailSignIn()" class="w-full bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold py-2.5 rounded-lg transition">Sign In</button>
-          <button onclick="handleEmailSignUp()" class="w-full bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold py-2.5 rounded-lg transition">Register</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- FIREBASE SDKs -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-    // Hardcoded Firebase Config
-    const firebaseConfig = {
-      apiKey: "AIzaSyBqQc3PUtC7Ed_hYTAbJoT6NxXAooc7a64",
-      authDomain: "brew-architect.firebaseapp.com",
-      projectId: "brew-architect",
-      storageBucket: "brew-architect.firebasestorage.app",
-      messagingSenderId: "236687608024",
-      appId: "1:236687608024:web:9617ba100a5f3373a9efad",
-      measurementId: "G-WGC9KJHZJK"
-    };
-
-    let app, auth, db;
-    let currentUser = null;
-
-    try {
-      app = initializeApp(firebaseConfig);
-      auth = getAuth(app);
-      db = getFirestore(app);
-    } catch (e) {
-      console.error("Firebase init error:", e);
-    }
-
-    window.currentUserObj = () => currentUser;
-    window.cloudSaveData = async () => {
-      if (!currentUser || !db) return;
-      try {
-        const payload = {
-          recipes: JSON.parse(localStorage.getItem(KEYS.RECIPES) || '{}'),
-          beans: JSON.parse(localStorage.getItem(KEYS.BEANS) || '{}'),
-          tags: JSON.parse(localStorage.getItem(KEYS.TAGS) || '[]'),
-          history: JSON.parse(localStorage.getItem(KEYS.HISTORY) || '[]'),
-          brewers: JSON.parse(localStorage.getItem(KEYS.BREWERS) || '[]'),
-          filters: JSON.parse(localStorage.getItem(KEYS.FILTERS) || '[]')
-        };
-        await setDoc(doc(db, "users", currentUser.uid), payload);
-      } catch (err) {
-        console.error("Cloud save failed:", err);
-      }
-    };
-
-    async function cloudLoadData() {
-      if (!currentUser || !db) return;
-      try {
-        const snap = await getDoc(doc(db, "users", currentUser.uid));
-        if (snap.exists()) {
-          const d = snap.data();
-          if (d.recipes) localStorage.setItem(KEYS.RECIPES, JSON.stringify(d.recipes));
-          if (d.beans) localStorage.setItem(KEYS.BEANS, JSON.stringify(d.beans));
-          if (d.tags) localStorage.setItem(KEYS.TAGS, JSON.stringify(d.tags));
-          if (d.history) localStorage.setItem(KEYS.HISTORY, JSON.stringify(d.history));
-          if (d.brewers) localStorage.setItem(KEYS.BREWERS, JSON.stringify(d.brewers));
-          if (d.filters) localStorage.setItem(KEYS.FILTERS, JSON.stringify(d.filters));
-        } else {
-          await window.cloudSaveData();
-        }
-      } catch (err) {
-        console.error("Cloud load failed:", err);
-      }
-      populateRecipeDropdown();
-      renderQuickTags();
-      renderGearDropdowns();
-      renderBrewHistory();
-    }
-
-    if (auth) {
-      onAuthStateChanged(auth, async (user) => {
-        currentUser = user;
-        const statusTxt = document.getElementById('authStatusText');
-        const actionBtn = document.getElementById('authActionBtn');
-        if (user) {
-          statusTxt.textContent = user.email;
-          actionBtn.textContent = 'Sign Out';
-          actionBtn.onclick = handleSignOut;
-          await cloudLoadData();
-        } else {
-          statusTxt.textContent = 'Not synced';
-          actionBtn.textContent = 'Sign In';
-          actionBtn.onclick = openAuthModal;
-          // Clear tags when logged out
-          localStorage.setItem(KEYS.TAGS, JSON.stringify([]));
-          renderQuickTags();
-        }
-      });
-    }
-
-    window.handleEmailSignIn = async () => {
-      const email = document.getElementById('authEmail').value;
-      const pass = document.getElementById('authPassword').value;
-      const errEl = document.getElementById('authErrorMsg');
-      try {
-        errEl.classList.add('hidden');
-        await signInWithEmailAndPassword(auth, email, pass);
-        closeAuthModal();
-      } catch (e) {
-        errEl.textContent = e.message;
-        errEl.classList.remove('hidden');
-      }
-    };
-
-    window.handleEmailSignUp = async () => {
-      const email = document.getElementById('authEmail').value;
-      const pass = document.getElementById('authPassword').value;
-      const errEl = document.getElementById('authErrorMsg');
-      try {
-        errEl.classList.add('hidden');
-        await createUserWithEmailAndPassword(auth, email, pass);
-        closeAuthModal();
-      } catch (e) {
-        errEl.textContent = e.message;
-        errEl.classList.remove('hidden');
-      }
-    };
-
-    async function handleSignOut() {
-      await signOut(auth);
-    }
-  </script>
-
-  <script>
-    const KEYS = {
-      RECIPES: 'brew_architect_recipes_v3',
-      BEANS: 'brew_architect_beans_v3',
-      TAGS: 'brew_architect_tags_v3',
-      HISTORY: 'brew_architect_history_v3',
-      BREWERS: 'brew_architect_brewers_v3',
-      FILTERS: 'brew_architect_filters_v3'
-    };
-
-    const DEFAULT_BREWERS = ["Orea V4", "V60", "Hario Switch", "Kalita Wave", "AeroPress"];
-    const DEFAULT_FILTERS = ["Cafec Abaca", "Cafec T-90", "Sibarist Fast", "Orea Flat", "Hario Tabbed"];
-
-    let lastTargetYield = 0;
-    let historyFilterMode = 'all';
-    let pours = [
-      { time: "", volume: "", notes: "" }
-    ];
-
-    // Timer State
-    let timerInterval = null;
-    let timerStartTime = null;
-    let timerElapsedMs = 0;
-    let timerRunning = false;
-
-    window.addEventListener('DOMContentLoaded', () => {
-      renderPours();
-      updateCalculations(false);
-      populateRecipeDropdown();
-      renderQuickTags();
-      renderGearDropdowns();
-      renderBrewHistory();
-
-      document.addEventListener('click', (e) => {
-        if (!document.getElementById('beanDropdownContainer').contains(e.target)) {
-          document.getElementById('beanDropdownMenu').classList.add('hidden');
-        }
-        if (!document.getElementById('brewerDropdownContainer').contains(e.target)) {
-          document.getElementById('brewerDropdownMenu').classList.add('hidden');
-        }
-        if (!document.getElementById('filterDropdownContainer').contains(e.target)) {
-          document.getElementById('filterDropdownMenu').classList.add('hidden');
-        }
-      });
-    });
-
-    function openAuthModal() { document.getElementById('authModal').classList.remove('hidden'); }
-    function closeAuthModal() { document.getElementById('authModal').classList.add('hidden'); }
-
-    // --- GEAR DROPDOWNS (BREWER & FILTER) ---
-    function getGearList(type) {
-      const key = type === 'brewer' ? KEYS.BREWERS : KEYS.FILTERS;
-      const defaults = type === 'brewer' ? DEFAULT_BREWERS : DEFAULT_FILTERS;
-      try {
-        return JSON.parse(localStorage.getItem(key)) || defaults;
-      } catch {
-        return defaults;
-      }
-    }
-
-    function saveGearList(type, list) {
-      const key = type === 'brewer' ? KEYS.BREWERS : KEYS.FILTERS;
-      localStorage.setItem(key, JSON.stringify(list));
-      if (window.cloudSaveData) window.cloudSaveData();
-    }
-
-    function renderGearDropdowns() {
-      ['brewer', 'filter'].forEach(type => {
-        const list = getGearList(type);
-        const container = document.getElementById(type === 'brewer' ? 'brewerOptionsList' : 'filterOptionsList');
-        container.innerHTML = '';
-        list.forEach((item, idx) => {
-          const row = document.createElement('div');
-          row.className = "flex items-center justify-between px-3 py-2 hover:bg-amber-50/70 text-sm cursor-pointer";
-          row.innerHTML = `
-            <span class="flex-grow font-medium text-stone-800" onclick="selectGearItem('${type}', '${item.replace(/'/g, "\\'")}')">${item}</span>
-            <button type="button" onclick="deleteGearItem(event, '${type}', ${idx})" class="text-stone-400 hover:text-red-600 font-bold pl-2">✕</button>
-          `;
-          container.appendChild(row);
-        });
-      });
-    }
-
-    function toggleGearDropdown(type) {
-      const menuId = type === 'brewer' ? 'brewerDropdownMenu' : 'filterDropdownMenu';
-      const otherMenuId = type === 'brewer' ? 'filterDropdownMenu' : 'brewerDropdownMenu';
-      document.getElementById(otherMenuId).classList.add('hidden');
-      document.getElementById(menuId).classList.toggle('hidden');
-    }
-
-    function selectGearItem(type, value) {
-      if (type === 'brewer') {
-        document.getElementById('brewer').value = value;
-        document.getElementById('brewerSelectedText').textContent = value;
-        document.getElementById('brewerDropdownMenu').classList.add('hidden');
-        checkAdvisoryPrompt();
-      } else {
-        document.getElementById('filterPaper').value = value;
-        document.getElementById('filterSelectedText').textContent = value;
-        document.getElementById('filterDropdownMenu').classList.add('hidden');
-      }
-    }
-
-    function addNewGearItem(type) {
-      const inputId = type === 'brewer' ? 'newBrewerInput' : 'newFilterInput';
-      const val = document.getElementById(inputId).value.trim();
-      if (!val) return;
-      const list = getGearList(type);
-      if (!list.includes(val)) {
-        list.unshift(val);
-        saveGearList(type, list);
-        renderGearDropdowns();
-      }
-      document.getElementById(inputId).value = '';
-      selectGearItem(type, val);
-    }
-
-    function deleteGearItem(e, type, idx) {
-      e.stopPropagation();
-      const list = getGearList(type);
-      list.splice(idx, 1);
-      saveGearList(type, list);
-      renderGearDropdowns();
-    }
-
-    // --- BEAN TRACKER & DROPDOWN ---
-    function getSavedBeans() {
-      try { return JSON.parse(localStorage.getItem(KEYS.BEANS)) || {}; } catch { return {}; }
-    }
-
-    function autoSaveCurrentBean() {
-      const name = document.getElementById('bean').value.trim();
-      const roastedOn = document.getElementById('roastedOn').value;
-      const openedOn = document.getElementById('openedOn').value;
-      if (!name || (!roastedOn && !openedOn)) return;
-      const beans = getSavedBeans();
-      beans[name] = { name, roastedOn, openedOn };
-      localStorage.setItem(KEYS.BEANS, JSON.stringify(beans));
-      if (window.cloudSaveData) window.cloudSaveData();
-    }
-
-    function saveBeanExplicit() {
-      const name = document.getElementById('bean').value.trim();
-      if (!name) return;
-      const beans = getSavedBeans();
-      beans[name] = {
-        name,
-        roastedOn: document.getElementById('roastedOn').value,
-        openedOn: document.getElementById('openedOn').value
-      };
-      localStorage.setItem(KEYS.BEANS, JSON.stringify(beans));
-      if (window.cloudSaveData) window.cloudSaveData();
-      renderBeanDropdown();
-      document.getElementById('beanDropdownMenu').classList.remove('hidden');
-    }
-
-    function toggleBeanDropdown() {
-      renderBeanDropdown();
-      document.getElementById('beanDropdownMenu').classList.toggle('hidden');
-    }
-
-    function renderBeanDropdown() {
-      const menu = document.getElementById('beanDropdownMenu');
-      const beans = getSavedBeans();
-      const keys = Object.keys(beans);
-      if (keys.length === 0) {
-        menu.innerHTML = `<div class="p-3 text-xs text-stone-400">No saved beans yet. Type a bean name & select dates above.</div>`;
-        return;
-      }
-      menu.innerHTML = '';
-      keys.forEach(name => {
-        const b = beans[name];
-        const item = document.createElement('div');
-        item.className = "flex items-center justify-between px-3 py-2.5 hover:bg-amber-50/70 cursor-pointer text-sm";
-        item.innerHTML = `
-          <div class="flex-grow" onclick="selectSavedBean('${name.replace(/'/g, "\\'")}')">
-            <div class="font-semibold text-stone-800">${b.name}</div>
-            <div class="text-[11px] text-stone-500">Roast: ${b.roastedOn || '—'} | Opened: ${b.openedOn || '—'}</div>
-          </div>
-          <button type="button" onclick="deleteSavedBean(event, '${name.replace(/'/g, "\\'")}')" class="text-stone-400 hover:text-red-600 font-bold px-2 py-1" title="Remove finished bag">✕</button>
-        `;
-        menu.appendChild(item);
-      });
-    }
-
-    function selectSavedBean(name) {
-      const beans = getSavedBeans();
-      const b = beans[name];
-      if (!b) return;
-      document.getElementById('bean').value = b.name;
-      document.getElementById('roastedOn').value = b.roastedOn || '';
-      document.getElementById('openedOn').value = b.openedOn || '';
-      document.getElementById('beanDropdownMenu').classList.add('hidden');
-      updateDateBadges();
-      checkAdvisoryPrompt();
-      renderBrewHistory();
-    }
-
-    function deleteSavedBean(e, name) {
-      e.stopPropagation();
-      const beans = getSavedBeans();
-      delete beans[name];
-      localStorage.setItem(KEYS.BEANS, JSON.stringify(beans));
-      if (window.cloudSaveData) window.cloudSaveData();
-      renderBeanDropdown();
-    }
-
-    function updateDateBadges() {
-      const today = new Date();
-      const roastVal = document.getElementById('roastedOn').value;
-      const roastBadge = document.getElementById('daysOffRoastBadge');
-      if (roastVal) {
-        const diff = Math.floor((today - new Date(roastVal)) / 86400000);
-        if (!isNaN(diff) && diff >= 0) {
-          roastBadge.textContent = `${diff}d off roast`;
-          roastBadge.classList.remove('hidden');
-        } else roastBadge.classList.add('hidden');
-      } else roastBadge.classList.add('hidden');
-
-      const openVal = document.getElementById('openedOn').value;
-      const openBadge = document.getElementById('daysOpenedBadge');
-      if (openVal) {
-        const diff = Math.floor((today - new Date(openVal)) / 86400000);
-        if (!isNaN(diff) && diff >= 0) {
-          openBadge.textContent = `${diff}d open`;
-          openBadge.classList.remove('hidden');
-        } else openBadge.classList.add('hidden');
-      } else openBadge.classList.add('hidden');
-    }
-
-    // --- LIVE COUNT-UP TIMER ---
-    function parseTimeToSeconds(str) {
-      if (!str) return null;
-      const parts = str.trim().split(':');
-      if (parts.length === 2) return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
-      return null;
-    }
-
-    function formatMsToClock(ms) {
-      const totalSec = ms / 1000;
-      const mins = Math.floor(totalSec / 60);
-      const secs = Math.floor(totalSec % 60);
-      const tenths = Math.floor((ms % 1000) / 100);
-      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${tenths}`;
-    }
-
-    function formatMsToShortTime(ms) {
-      const totalSec = Math.round(ms / 1000);
-      const mins = Math.floor(totalSec / 60);
-      const secs = totalSec % 60;
-      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-    }
-
-    function toggleTimer() {
-      const btn = document.getElementById('timerStartBtn');
-      if (!timerRunning) {
-        timerRunning = true;
-        timerStartTime = performance.now() - timerElapsedMs;
-        btn.textContent = '⏸ Pause';
-        btn.className = 'bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm px-4 py-2 rounded-xl transition';
-        timerInterval = setInterval(updateTimerTick, 100);
-      } else {
-        timerRunning = false;
-        clearInterval(timerInterval);
-        btn.textContent = '▶ Resume';
-        btn.className = 'bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm px-4 py-2 rounded-xl transition';
-      }
-    }
-
-    function resetTimer() {
-      timerRunning = false;
-      clearInterval(timerInterval);
-      timerElapsedMs = 0;
-      document.getElementById('timerDisplay').textContent = '00:00.0';
-      document.getElementById('timerStageLabel').textContent = 'Ready to Brew';
-      document.getElementById('timerNextHint').textContent = 'Press Start when pouring bloom';
-      const btn = document.getElementById('timerStartBtn');
-      btn.textContent = '▶ Start';
-      btn.className = 'bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm px-4 py-2 rounded-xl transition';
-      highlightActivePourRow(-1);
-    }
-
-    function updateTimerTick() {
-      timerElapsedMs = performance.now() - timerStartTime;
-      document.getElementById('timerDisplay').textContent = formatMsToClock(timerElapsedMs);
-      const currentSec = timerElapsedMs / 1000;
-
-      let activeIdx =
+                <tr class="bg-stone-100 text-stone-600 text-xs uppercase border-b border-stone-200">
+                  <th class="py-2.5 px-3 w-24">Stage</th>
